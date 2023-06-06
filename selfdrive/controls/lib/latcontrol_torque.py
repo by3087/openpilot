@@ -63,7 +63,6 @@ class LatControlTorque(LatControl):
       future_times = [0.3, 0.8]
       self.nnff_future_times = [i + self.nnff_time_offset for i in future_times]
       self.nnff_lat_accels_filtered = [FirstOrderFilter(0.0, 0.0, 0.01) for i in [0.0] + future_times]
-      self.nnff_lat_jerk_filtered = FirstOrderFilter(0.0, 0.0, 0.01)
       history_check_frames = [30] # 0.3 seconds ago
       self.history_frame_offsets = [history_check_frames[0] - i for i in history_check_frames]
       self.lat_accel_deque = deque(maxlen=history_check_frames[0])
@@ -110,7 +109,7 @@ class LatControlTorque(LatControl):
         actual_curvature = interp(CS.vEgo, [2.0, 5.0], [actual_curvature_vm, actual_curvature_llk])
         curvature_deadzone = 0.0
       
-      lookahead = interp(CS.vEgo, [10.0, 30.0], [0.6, 1.8]) # seconds
+      lookahead = interp(CS.vEgo, [10.0, 30.0], [0.9, 1.8]) # seconds
       lookahead_upper_idx = next((i for i, val in enumerate(T_IDXS) if val > lookahead), 16)
       lookahead_curvature_rate = get_lookahead_value(list(lat_plan.curvatureRates)[LAT_PLAN_MIN_IDX:lookahead_upper_idx], desired_curvature_rate)
       lookahead_lateral_jerk = lookahead_curvature_rate * CS.vEgo ** 2
@@ -164,8 +163,6 @@ class LatControlTorque(LatControl):
           future_rolls = [roll] * len(self.nnff_future_times)
         
         alpha = self.nnff_alpha_up_down[0 if abs(desired_lateral_accel) > abs(self.nnff_lat_accels_filtered[0].x) else 1]
-        self.nnff_lat_jerk_filtered.update_alpha(alpha/2)
-        self.nnff_lat_jerk_filtered.update(lookahead_lateral_jerk)
         for i,(k, v) in enumerate(zip(future_curvatures, future_speeds)):
           self.nnff_lat_accels_filtered[i].update_alpha(alpha)
           self.nnff_lat_accels_filtered[i].update(k * v ** 2)
@@ -179,7 +176,7 @@ class LatControlTorque(LatControl):
                                           desired_lateral_accel - actual_lateral_accel,
                                           lateral_accel_deadzone, friction_compensation=True)
         
-        nnff_input = [CS.vEgo, lat_accels_filtered[0], self.nnff_lat_jerk_filtered.x, roll] \
+        nnff_input = [CS.vEgo, lat_accels_filtered[0], lookahead_lateral_jerk, roll] \
                     + past_lateral_accels + lat_accels_filtered[1:] \
                     + past_rolls + future_rolls
         nnff = self.torque_from_nn(nnff_input)
